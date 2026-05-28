@@ -70,9 +70,15 @@ with a checkpoint. Do not jump ahead — later docs assume earlier ones are done
 | [05 — Terraform Fundamentals](docs/05-terraform-fundamentals.md) | IaC, HCL syntax, providers, resources, variables, state, the workflow. |
 | [06 — Remote State Backend](docs/06-remote-state-backend.md) | Your **first `terraform apply`**: an S3 + DynamoDB state backend. |
 
-### Phases 1–8 — coming next (built as you progress)
+### Phase 1 — Networking (the VPC)
 
-1. **Networking** — VPC, subnets, IGW, route tables, NACLs, security groups.
+| Doc | What you'll learn / do |
+|-----|------------------------|
+| [07 — VPC, Subnets, IGW & Routing](docs/07-networking-vpc-and-subnets.md) | Build the network fabric: custom VPC, 6 subnets across 2 AZs, Internet Gateway, route tables. First use of the S3 backend. |
+| [08 — Security Groups & NACLs](docs/08-networking-security-groups-and-nacls.md) | The two firewall layers: the stateful `ALB → App → DB` security-group chain plus stateless NACL backstops. |
+
+### Phases 2–8 — coming next (built as you progress)
+
 2. **Compute** — EC2 launch template, Auto Scaling Group, Application Load Balancer.
 3. **Database** — RDS PostgreSQL, secrets, parameter groups.
 4. **Application** — the FastAPI backend + React frontend (CloudCare HMS).
