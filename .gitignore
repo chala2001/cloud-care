@@ -1,0 +1,20 @@
+# Never commit credentials or local AWS config
+**/.aws/
+*.pem
+*.key
+.env
+.env.*
+
+# Terraform local state & caches (we use remote state, but just in case)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars            # may contain secrets; commit *.tfvars.example instead
+
+# Python / Node build junk (for the app later)
+__pycache__/
+*.pyc
+node_modules/
+dist/
+build/
