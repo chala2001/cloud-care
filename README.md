@@ -90,9 +90,16 @@ with a checkpoint. Do not jump ahead — later docs assume earlier ones are done
 |-----|------------------------|
 | [11 — RDS PostgreSQL & Secrets Manager](docs/11-database-rds-postgresql.md) | A managed PostgreSQL instance in the private db subnets (single-AZ, encrypted), a DB subnet group, and the master password generated into Secrets Manager. |
 
-### Phases 4–8 — coming next (built as you progress)
+### Phase 4 — The Application
 
-4. **Application** — the FastAPI backend + React frontend (CloudCare HMS).
+| Doc | What you'll learn / do |
+|-----|------------------------|
+| [12 — FastAPI Backend (local)](docs/12-application-fastapi-backend.md) | Build the CloudCare API (patients + appointments, `/health`) with FastAPI + SQLAlchemy + Postgres, run it locally in Docker Compose. |
+| [13 — Deploy the Backend to EC2](docs/13-application-deploy-to-ec2.md) | NAT instance for egress, ECR image, instances read the DB secret via IAM, served through the ALB — the full 3-tier path working. |
+| [14 — React Frontend](docs/14-application-react-frontend.md) | A React SPA (Vite) for patients/appointments calling the API; run locally and produce a static production build. |
+
+### Phases 5–8 — coming next (built as you progress)
+
 5. **Content delivery** — S3 + CloudFront for the frontend.
 6. **Serverless** — API Gateway + Lambda + DynamoDB + X-Ray; SES contact form.
 7. **Observability** — CloudWatch dashboards, alarms, logs, the Cost tools.

@@ -47,15 +47,17 @@ The work is split into **phases**. Each phase is one or more numbered docs in
 | **7** | 18 | Observability & cost | CloudWatch (logs/metrics/alarms), Cost Explorer/Budgets | ✅ Free within limits |
 | **8** | 19–20 | Productionizing | GitHub Actions CI/CD, teardown, interview story | ✅ Free |
 
-**Phases 0–3 are written** (docs 00–11): Phase 1 — Networking
+**Phases 0–4 are written** (docs 00–14): Phase 1 — Networking
 ([07](07-networking-vpc-and-subnets.md), [08](08-networking-security-groups-and-nacls.md)),
 Phase 2 — Compute
 ([09](09-compute-launch-template-and-asg.md), [10](10-compute-application-load-balancer.md)),
-and Phase 3 — Database ([11](11-database-rds-postgresql.md)) are ready to build.
+Phase 3 — Database ([11](11-database-rds-postgresql.md)), and Phase 4 — The
+Application ([12](12-application-fastapi-backend.md),
+[13](13-application-deploy-to-ec2.md), [14](14-application-react-frontend.md)).
 
 > The doc numbers above are the *plan*. I write each phase's docs when you reach
 > it, so we can adjust based on what you learned in the previous one. You won't
-> see docs 12+ in the repo until we get there — that's intentional.
+> see docs 15+ in the repo until we get there — that's intentional.
 
 ---
 
