@@ -77,9 +77,15 @@ with a checkpoint. Do not jump ahead — later docs assume earlier ones are done
 | [07 — VPC, Subnets, IGW & Routing](docs/07-networking-vpc-and-subnets.md) | Build the network fabric: custom VPC, 6 subnets across 2 AZs, Internet Gateway, route tables. First use of the S3 backend. |
 | [08 — Security Groups & NACLs](docs/08-networking-security-groups-and-nacls.md) | The two firewall layers: the stateful `ALB → App → DB` security-group chain plus stateless NACL backstops. |
 
-### Phases 2–8 — coming next (built as you progress)
+### Phase 2 — Compute
 
-2. **Compute** — EC2 launch template, Auto Scaling Group, Application Load Balancer.
+| Doc | What you'll learn / do |
+|-----|------------------------|
+| [09 — Launch Template, IAM Role & ASG](docs/09-compute-launch-template-and-asg.md) | The app tier: a self-healing Auto Scaling Group of `t2.micro` instances in the private app subnets, wired to Phase 1 via `terraform_remote_state`. |
+| [10 — Application Load Balancer](docs/10-compute-application-load-balancer.md) | An internet-facing ALB in the public subnets, target group + health checks on :8000, end-to-end `curl` through the 3-tier path. |
+
+### Phases 3–8 — coming next (built as you progress)
+
 3. **Database** — RDS PostgreSQL, secrets, parameter groups.
 4. **Application** — the FastAPI backend + React frontend (CloudCare HMS).
 5. **Content delivery** — S3 + CloudFront for the frontend.

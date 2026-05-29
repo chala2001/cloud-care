@@ -47,13 +47,15 @@ The work is split into **phases**. Each phase is one or more numbered docs in
 | **7** | 18 | Observability & cost | CloudWatch (logs/metrics/alarms), Cost Explorer/Budgets | ✅ Free within limits |
 | **8** | 19–20 | Productionizing | GitHub Actions CI/CD, teardown, interview story | ✅ Free |
 
-**Phases 0 and 1 are written** (docs 00–08). Phase 1 — Networking — is ready to
-build: see [07 — VPC, Subnets, IGW & Routing](07-networking-vpc-and-subnets.md)
-and [08 — Security Groups & NACLs](08-networking-security-groups-and-nacls.md).
+**Phases 0–2 are written** (docs 00–10). Phase 1 — Networking
+([07](07-networking-vpc-and-subnets.md), [08](08-networking-security-groups-and-nacls.md))
+— and Phase 2 — Compute
+([09](09-compute-launch-template-and-asg.md), [10](10-compute-application-load-balancer.md))
+— are ready to build.
 
 > The doc numbers above are the *plan*. I write each phase's docs when you reach
 > it, so we can adjust based on what you learned in the previous one. You won't
-> see docs 09+ in the repo until we get there — that's intentional.
+> see docs 11+ in the repo until we get there — that's intentional.
 
 ---
 
