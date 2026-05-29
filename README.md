@@ -84,9 +84,14 @@ with a checkpoint. Do not jump ahead — later docs assume earlier ones are done
 | [09 — Launch Template, IAM Role & ASG](docs/09-compute-launch-template-and-asg.md) | The app tier: a self-healing Auto Scaling Group of `t2.micro` instances in the private app subnets, wired to Phase 1 via `terraform_remote_state`. |
 | [10 — Application Load Balancer](docs/10-compute-application-load-balancer.md) | An internet-facing ALB in the public subnets, target group + health checks on :8000, end-to-end `curl` through the 3-tier path. |
 
-### Phases 3–8 — coming next (built as you progress)
+### Phase 3 — Database
 
-3. **Database** — RDS PostgreSQL, secrets, parameter groups.
+| Doc | What you'll learn / do |
+|-----|------------------------|
+| [11 — RDS PostgreSQL & Secrets Manager](docs/11-database-rds-postgresql.md) | A managed PostgreSQL instance in the private db subnets (single-AZ, encrypted), a DB subnet group, and the master password generated into Secrets Manager. |
+
+### Phases 4–8 — coming next (built as you progress)
+
 4. **Application** — the FastAPI backend + React frontend (CloudCare HMS).
 5. **Content delivery** — S3 + CloudFront for the frontend.
 6. **Serverless** — API Gateway + Lambda + DynamoDB + X-Ray; SES contact form.
