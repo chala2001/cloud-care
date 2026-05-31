@@ -35,3 +35,11 @@ variable "asg_desired_capacity" {
   type        = number
   default     = 1 # one instance = stays inside the 750 free t2.micro hours
 }
+
+# add to terraform/compute/variables.tf
+
+variable "enable_nat_instance" {
+  description = "Run a NAT instance so private app instances have internet egress"
+  type        = bool
+  default     = true
+}

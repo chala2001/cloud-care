@@ -24,8 +24,8 @@ resource "aws_lb_target_group" "app" {
   target_type = "instance"
 
   health_check {
-    path                = "/"
-    port                = "traffic-port" # = 8000, the target group's port
+    path                = "/health" # the real app's cheap health endpoint
+    port                = "traffic-port"
     protocol            = "HTTP"
     matcher             = "200"
     interval            = 15
