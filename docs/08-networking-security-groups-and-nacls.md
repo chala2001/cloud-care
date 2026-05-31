@@ -254,6 +254,19 @@ resource "aws_network_acl" "private" {
     to_port    = 0
     cidr_block = var.vpc_cidr # 10.0.0.0/16 — only traffic from within the VPC
   }
+  ingress {
+    # Return traffic for connections these subnets OPEN outbound through the NAT
+    # instance added in Doc 13 (ECR pulls, dnf, Secrets Manager). NACLs are
+    # stateless, so these replies arrive from public IPs on ephemeral ports and
+    # must be allowed explicitly — otherwise every outbound connection stalls at
+    # SYN_RECV once egress exists.
+    rule_no    = 110
+    action     = "allow"
+    protocol   = "tcp"
+    from_port  = 1024
+    to_port    = 65535
+    cidr_block = "0.0.0.0/0"
+  }
 
   egress {
     rule_no    = 100
@@ -275,11 +288,15 @@ resource "aws_network_acl" "private" {
 > on an ephemeral port → inbound rule `120`. Every direction is covered. Remove
 > rule `120` and responses silently vanish — that's the stateless trap.
 
-> 🧠 **Why the private NACL only allows `var.vpc_cidr` inbound.** The app and db
-> subnets have **no internet route** (Doc 07), so the only legitimate traffic is
-> intra-VPC: ALB→app and app→db. Allowing only `10.0.0.0/16` inbound is a clean,
-> coarse "nothing from outside the VPC, ever" backstop that can't accidentally
-> break the security-group chain.
+> 🧠 **Why the private NACL allows `var.vpc_cidr` inbound (rule 100).** The app and
+> db subnets' core traffic is intra-VPC: ALB→app and app→db. Allowing only
+> `10.0.0.0/16` inbound is a clean, coarse "nothing from outside the VPC" backstop.
+> **Rule 110 (ephemeral return) is the partner that's easy to forget.** While the
+> subnets had no internet route (through Doc 12) it didn't matter. But Doc 13 adds
+> a **NAT instance** so these subnets can egress to the internet — and because
+> NACLs are stateless, the *replies* (from public IPs, on ephemeral ports) need
+> rule 110 or every `dnf`/`docker pull` hangs at `SYN_RECV`. If you build straight
+> through to Doc 13, include rule 110 here from the start.
 
 > 💡 **Why not lock NACLs down further?** You *could* enumerate exact ports per
 > subnet, but stateless rules get error-prone fast and the security groups already

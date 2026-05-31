@@ -21,42 +21,40 @@ resource "aws_launch_template" "app" {
     http_endpoint = "enabled"
   }
 
-  # Boot script: install NOTHING; run a stdlib HTTP health server on :8000.
+  # Boot script: install Docker, pull our image from ECR, and run the container
+  # with DB credentials pulled from Secrets Manager at runtime.
   user_data = base64encode(<<-EOF
     #!/bin/bash
     set -euo pipefail
 
-    cat >/opt/health.py <<'PY'
-    from http.server import BaseHTTPRequestHandler, HTTPServer
-    import socket
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(("CloudCare healthy from %s\n" % socket.gethostname()).encode())
-        def log_message(self, *args):
-            return
-    HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
-    PY
+    REGION="${var.aws_region}"
+    ACCOUNT="${data.aws_caller_identity.current.account_id}"
+    REPO="$${ACCOUNT}.dkr.ecr.$${REGION}.amazonaws.com/${var.project}-backend"
 
-    cat >/etc/systemd/system/cloudcare.service <<'UNIT'
-    [Unit]
-    Description=CloudCare placeholder health service
-    After=network.target
+    # The AWS CLI and Python ship with Amazon Linux 2023. Add Docker + jq.
+    dnf install -y docker jq
+    systemctl enable --now docker
 
-    [Service]
-    ExecStart=/usr/bin/python3 /opt/health.py
-    Restart=always
+    # Authenticate Docker to ECR and pull our image.
+    aws ecr get-login-password --region "$REGION" \
+      | docker login --username AWS --password-stdin "$${ACCOUNT}.dkr.ecr.$${REGION}.amazonaws.com"
+    docker pull "$${REPO}:latest"
 
-    [Install]
-    WantedBy=multi-user.target
-    UNIT
+    # Read DB credentials from Secrets Manager (allowed by the instance role).
+    CREDS=$(aws secretsmanager get-secret-value --region "$REGION" \
+      --secret-id "${var.project}/db/credentials" --query SecretString --output text)
 
-    systemctl daemon-reload
-    systemctl enable --now cloudcare
+    # Run the container, injecting the DB connection as environment variables.
+    docker run -d --restart always -p 8000:8000 \
+      -e DB_HOST="$(echo "$CREDS" | jq -r .host)" \
+      -e DB_PORT="$(echo "$CREDS" | jq -r .port)" \
+      -e DB_NAME="$(echo "$CREDS" | jq -r .dbname)" \
+      -e DB_USER="$(echo "$CREDS" | jq -r .username)" \
+      -e DB_PASSWORD="$(echo "$CREDS" | jq -r .password)" \
+      "$${REPO}:latest"
   EOF
   )
+
 
   tag_specifications {
     resource_type = "instance"

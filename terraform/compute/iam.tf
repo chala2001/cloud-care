@@ -28,3 +28,23 @@ resource "aws_iam_instance_profile" "app" {
   name = "${var.project}-app-profile"
   role = aws_iam_role.app.name
 }
+
+# Pull images from ECR (AWS-managed read-only policy).
+resource "aws_iam_role_policy_attachment" "ecr_read" {
+  role       = aws_iam_role.app.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+# Read ONLY the CloudCare DB secret — least privilege, scoped to one ARN.
+data "aws_iam_policy_document" "read_db_secret" {
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [data.terraform_remote_state.database.outputs.db_secret_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "read_db_secret" {
+  name   = "${var.project}-read-db-secret"
+  role   = aws_iam_role.app.id
+  policy = data.aws_iam_policy_document.read_db_secret.json
+}

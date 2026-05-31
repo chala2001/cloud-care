@@ -26,3 +26,16 @@ data "aws_ami" "al2023" {
     values = ["hvm"]
   }
 }
+
+# Account id (for building the ECR URL inside user_data).
+data "aws_caller_identity" "current" {}
+
+# Read the DATABASE stack to get the Secrets Manager ARN to grant access to.
+data "terraform_remote_state" "database" {
+  backend = "s3"
+  config = {
+    bucket = "cloudcare-tfstate-670794226080"
+    key    = "database/terraform.tfstate"
+    region = "ap-south-1"
+  }
+}

@@ -65,6 +65,18 @@ resource "aws_network_acl" "private" {
     to_port    = 0
     cidr_block = var.vpc_cidr # 10.0.0.0/16 — only traffic from within the VPC
   }
+  ingress {
+    # Return traffic for connections the private instances OPEN outbound through
+    # the NAT instance (e.g. pulling the image from ECR, dnf, Secrets Manager).
+    # NACLs are stateless, so these replies arrive from public IPs on ephemeral
+    # ports and must be explicitly allowed or every outbound connection stalls.
+    rule_no    = 110
+    action     = "allow"
+    protocol   = "tcp"
+    from_port  = 1024
+    to_port    = 65535
+    cidr_block = "0.0.0.0/0"
+  }
 
   egress {
     rule_no    = 100

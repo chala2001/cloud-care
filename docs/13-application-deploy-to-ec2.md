@@ -7,7 +7,7 @@
 > **DB password from Secrets Manager** via their IAM role, and point the ALB
 > health check at the real `/health`.
 
-⏱️ Time: ~90 minutes. 💰 Cost: this runs a NAT `t2.micro` + an app `t2.micro` +
+⏱️ Time: ~90 minutes. 💰 Cost: this runs a NAT `t3.micro` + an app `t3.micro` +
 the ALB — watch your hours and **destroy after the lab** (§9).
 
 This is the integration doc — everything from Phases 1–4 comes together here.
@@ -28,7 +28,7 @@ So the instances need **outbound** internet. Two ways to give it to them:
 
 | Option | Cost | Complexity | We use |
 |--------|------|------------|--------|
-| **NAT instance** (a `t2.micro` doing NAT) | ~free (instance hours) | one EC2 + a route | ✅ this doc |
+| **NAT instance** (a `t3.micro` doing NAT) | ~free (instance hours) | one EC2 + a route | ✅ this doc |
 | Managed **NAT Gateway** | ~$32/mo + data | trivial | ❌ too costly |
 | VPC **interface endpoints** (ECR/Secrets/Logs) + no internet | ~$0.01/hr each | several endpoints, repo quirks | 💡 the production "fully private" alternative |
 
@@ -56,8 +56,18 @@ terraform/compute/
 └── variables.tf      # EDIT — add enable_nat_instance toggle
 ```
 
+Plus one edit **outside** the compute stack:
+
+```
+terraform/network/
+└── nacls.tf          # EDIT — private NACL must allow inbound return traffic
+                      #        (ephemeral ports) now that the subnets egress via NAT
+```
+
 The order matters: **create ECR and push the image first**, *then* roll out the
-new launch template — otherwise instances boot and find no image to pull.
+new launch template — otherwise instances boot and find no image to pull. And
+apply the **network NACL** change before (or with) the rollout, or the new
+instances boot with no working egress.
 
 ---
 
@@ -96,6 +106,12 @@ terraform apply   # creates the ECR repo (1 to add)
 ---
 
 ## 4. Build and push the image (from your laptop)
+
+> 📁 **Run these from the repository root**, not from inside `terraform/compute`.
+> The paths below (`cd terraform/compute`, `cd app/backend`) are relative to the
+> repo root — running them from another directory makes the `cd`s fail, `$REPO`
+> comes back empty, and `docker push` errors with `":latest" is not a valid
+> repository/tag`.
 
 ```bash
 export AWS_PROFILE=cloudcare
@@ -196,11 +212,13 @@ resource "aws_security_group" "nat" {
   tags = { Name = "${var.project}-nat-sg" }
 }
 
-# The NAT instance itself — a t2.micro in a PUBLIC subnet with a public IP.
+# The NAT instance itself — a t3.micro in a PUBLIC subnet with a public IP.
+# NOTE: in ap-south-1 the free-tier micro is **t3.micro**, not t2.micro. Using
+# t2.micro here returns "not eligible for Free Tier" at apply time.
 resource "aws_instance" "nat" {
   count                       = var.enable_nat_instance ? 1 : 0
   ami                         = data.aws_ami.al2023.id
-  instance_type               = "t2.micro"
+  instance_type               = "t3.micro"
   subnet_id                   = data.terraform_remote_state.network.outputs.public_subnet_ids[0]
   associate_public_ip_address = true
   vpc_security_group_ids      = [aws_security_group.nat[0].id]
@@ -208,17 +226,28 @@ resource "aws_instance" "nat" {
   # CRITICAL for a NAT: the instance must forward packets NOT addressed to itself.
   source_dest_check = false
 
+  # user_data only runs on FIRST boot, and an in-place change doesn't recreate the
+  # instance by default — so force a replacement whenever this script changes.
+  user_data_replace_on_change = true
+
   user_data = base64encode(<<-EOF
     #!/bin/bash
     set -euo pipefail
+    # Amazon Linux 2023 does NOT ship the iptables CLI — install it FIRST. (If you
+    # call iptables before installing it, `set -e` aborts and NAT silently fails.)
+    dnf install -y iptables iptables-services
     # Turn the box into a router:
     sysctl -w net.ipv4.ip_forward=1
     echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-nat.conf
+    # iptables-services ships a default ruleset whose FORWARD chain REJECTs traffic.
+    # Clear it and default FORWARD to ACCEPT so the VPC can route THROUGH this box.
+    iptables -P FORWARD ACCEPT
+    iptables -F FORWARD
     # Masquerade outbound traffic on the primary network interface:
     IFACE=$(ip route | awk '/default/ {print $5; exit}')
+    iptables -t nat -F POSTROUTING
     iptables -t nat -A POSTROUTING -o "$IFACE" -j MASQUERADE
-    # Persist the iptables rule across reboots:
-    dnf install -y iptables-services
+    # Persist the iptables rules across reboots:
     service iptables save
     systemctl enable iptables
   EOF
@@ -257,6 +286,27 @@ resource "aws_route" "private_nat" {
 > internet-bound traffic to the NAT, which masquerades it out through its public
 > IP. Replies come back the same way. The instances still have **no public IP** —
 > they're reachable only via the ALB.
+
+> ⚠️ **Prerequisite the NAT exposes: the private NACL must allow return traffic.**
+> The Phase 1 **private NACL** (Doc 08) only allowed inbound from `10.0.0.0/16`.
+> That was fine while the subnets had no egress — but the moment traffic routes
+> out through the NAT, the **replies arrive from public IPs on ephemeral ports**
+> and the NACL (stateless!) silently drops them. The symptom is brutal to debug:
+> the route, SGs, and `source_dest_check` all look perfect, the NAT's `MASQUERADE`
+> counter climbs, but connections hang at `SYN_RECV` and `dnf`/`docker pull` time
+> out. **Fix in `terraform/network/nacls.tf`** — add to the `private` NACL:
+> ```hcl
+>   ingress {
+>     rule_no    = 110
+>     action     = "allow"
+>     protocol   = "tcp"
+>     from_port  = 1024
+>     to_port    = 65535
+>     cidr_block = "0.0.0.0/0"
+>   }
+> ```
+> then `cd terraform/network && terraform apply`. (The *public* NACL already had
+> this rule; the private one was missing it.)
 
 ---
 
@@ -407,27 +457,42 @@ curl "http://$ALB/patients"
 PostgreSQL database from Phase 3, by an app that read its password from Secrets
 Manager using its IAM role. That's the whole 3-tier architecture, working.
 
-> 🧠 **If targets stay unhealthy:** the usual cause is the instance couldn't reach
-> the internet (NAT) at boot. Check the NAT instance is running and
-> `source_dest_check` is false, and that the private route table shows
-> `0.0.0.0/0 → eni-...`. After fixing, start a fresh rollout:
-> `aws autoscaling start-instance-refresh --auto-scaling-group-name $(terraform output -raw asg_name)`.
+> 🧠 **If targets stay unhealthy** it's almost always boot-time egress. Work down
+> this list (in the order they actually bit us):
+> 1. **NACL return traffic** — the private NACL must allow inbound TCP 1024–65535
+>    from `0.0.0.0/0` (see the ⚠️ box in §7). Without it everything *looks* right
+>    but connections hang at `SYN_RECV`.
+> 2. **NAT not forwarding** — confirm the NAT is running, `source_dest_check` is
+>    false, and the private route table shows `0.0.0.0/0 → eni-...`. On AL2023 the
+>    NAT's `iptables` must be installed *before* use and the `FORWARD` policy set
+>    to `ACCEPT` (see §7).
+> 3. **Instance refresh didn't auto-trigger** — the ASG pins the launch template to
+>    `$Latest`, so publishing a new version doesn't change the ASG's tracked config
+>    and the rolling refresh never fires on its own. Kick it manually:
+>    `aws autoscaling start-instance-refresh --auto-scaling-group-name $(terraform output -raw asg_name) --preferences '{"MinHealthyPercentage":0}'`.
+>
+> **To debug from inside a private instance** (no SSH key, no public IP): use SSM
+> Session Manager / Run Command — the AL2023 SSM document is **`AWS-RunShellScript`**
+> (not `AWS-RunShellCommand`). The instance role already has `AmazonSSMManagedInstanceCore`.
+> Useful checks on the box: `sudo docker ps -a`, `sudo docker logs <id>`,
+> `sudo tail -50 /var/log/cloud-init-output.log`. Or read the boot log without any
+> agent: `aws ec2 get-console-output --instance-id <id> --latest`.
 
 ---
 
 ## 12. 💰 Cost & teardown (important — most resources running yet)
 
-You now have the **most** running at once: NAT `t2.micro` + app `t2.micro` + ALB
+You now have the **most** running at once: NAT `t3.micro` + app `t3.micro` + ALB
 (+ the RDS from Phase 3 if you left it up).
 
 | Resource | Note |
 |----------|------|
-| NAT instance (t2.micro) | counts against the 750 free hours alongside the app instance |
-| App instance (t2.micro) | 1 instance fits 750 hrs; NAT makes it **two** micros → watch it |
+| NAT instance (t3.micro) | counts against the 750 free hours alongside the app instance |
+| App instance (t3.micro) | 1 instance fits 750 hrs; NAT makes it **two** micros → watch it |
 | ALB | 750 hrs free for 12 months |
 | ECR storage | tiny, within 500 MB free |
 
-> 💰 **Two `t2.micro` (app + NAT) running 24/7 ≈ 1,460 hrs → over the 750 free.**
+> 💰 **Two `t3.micro` (app + NAT) running 24/7 ≈ 1,460 hrs → over the 750 free.**
 > So **don't leave this up**. When you finish a session:
 > ```bash
 > terraform destroy   # in terraform/compute/  (removes NAT, ASG, ALB, ECR, IAM)
