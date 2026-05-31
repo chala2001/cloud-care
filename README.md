@@ -98,9 +98,14 @@ with a checkpoint. Do not jump ahead — later docs assume earlier ones are done
 | [13 — Deploy the Backend to EC2](docs/13-application-deploy-to-ec2.md) | NAT instance for egress, ECR image, instances read the DB secret via IAM, served through the ALB — the full 3-tier path working. |
 | [14 — React Frontend](docs/14-application-react-frontend.md) | A React SPA (Vite) for patients/appointments calling the API; run locally and produce a static production build. |
 
-### Phases 5–8 — coming next (built as you progress)
+### Phase 5 — Content Delivery
 
-5. **Content delivery** — S3 + CloudFront for the frontend.
+| Doc | What you'll learn / do |
+|-----|------------------------|
+| [15 — S3 Static Hosting & CloudFront](docs/15-content-delivery-s3-cloudfront.md) | Private S3 bucket (OAC), a CloudFront distribution with two origins (S3 + ALB), `/api/*` routing, SPA fallback, free HTTPS — one global URL for the whole app. |
+
+### Phases 6–8 — coming next (built as you progress)
+
 6. **Serverless** — API Gateway + Lambda + DynamoDB + X-Ray; SES contact form.
 7. **Observability** — CloudWatch dashboards, alarms, logs, the Cost tools.
 8. **Wrap-up** — CI/CD, the interview story, and a full teardown guide.
