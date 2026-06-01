@@ -24,36 +24,67 @@ app.add_middleware(
 
 # The endpoint the ALB target group health-checks. Keep it cheap and dependency-
 # free so it stays green even if the DB hiccups momentarily.
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+# @app.get("/health")
+# def health():
+#     return {"status": "ok"}
 
 
-@app.get("/patients", response_model=list[schemas.PatientOut])
+# @app.get("/patients", response_model=list[schemas.PatientOut])
+# def list_patients(db: Session = Depends(get_db)):
+#     return db.scalars(select(models.Patient)).all()
+
+
+# @app.post("/patients", response_model=schemas.PatientOut, status_code=201)
+# def create_patient(payload: schemas.PatientCreate, db: Session = Depends(get_db)):
+#     patient = models.Patient(**payload.model_dump())
+#     db.add(patient)
+#     db.commit()
+#     db.refresh(patient)
+#     return patient
+
+
+# @app.get("/appointments", response_model=list[schemas.AppointmentOut])
+# def list_appointments(db: Session = Depends(get_db)):
+#     return db.scalars(select(models.Appointment)).all()
+
+
+# @app.post("/appointments", response_model=schemas.AppointmentOut, status_code=201)
+# def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends(get_db)):
+#     if not db.get(models.Patient, payload.patient_id):
+#         raise HTTPException(status_code=404, detail="patient not found")
+#     appt = models.Appointment(**payload.model_dump())
+#     db.add(appt)
+#     db.commit()
+#     db.refresh(appt)
+#     return appt
+
+# replace the @app.get/post for patients & appointments with this router
+
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/api")
+
+@router.get("/patients", response_model=list[schemas.PatientOut])
 def list_patients(db: Session = Depends(get_db)):
     return db.scalars(select(models.Patient)).all()
 
-
-@app.post("/patients", response_model=schemas.PatientOut, status_code=201)
+@router.post("/patients", response_model=schemas.PatientOut, status_code=201)
 def create_patient(payload: schemas.PatientCreate, db: Session = Depends(get_db)):
     patient = models.Patient(**payload.model_dump())
-    db.add(patient)
-    db.commit()
-    db.refresh(patient)
+    db.add(patient); db.commit(); db.refresh(patient)
     return patient
 
-
-@app.get("/appointments", response_model=list[schemas.AppointmentOut])
+@router.get("/appointments", response_model=list[schemas.AppointmentOut])
 def list_appointments(db: Session = Depends(get_db)):
     return db.scalars(select(models.Appointment)).all()
 
-
-@app.post("/appointments", response_model=schemas.AppointmentOut, status_code=201)
+@router.post("/appointments", response_model=schemas.AppointmentOut, status_code=201)
 def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends(get_db)):
     if not db.get(models.Patient, payload.patient_id):
         raise HTTPException(status_code=404, detail="patient not found")
     appt = models.Appointment(**payload.model_dump())
-    db.add(appt)
-    db.commit()
-    db.refresh(appt)
+    db.add(appt); db.commit(); db.refresh(appt)
     return appt
+
+app.include_router(router)
+# /health stays a top-level @app.get("/health")

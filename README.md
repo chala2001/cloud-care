@@ -104,9 +104,15 @@ with a checkpoint. Do not jump ahead — later docs assume earlier ones are done
 |-----|------------------------|
 | [15 — S3 Static Hosting & CloudFront](docs/15-content-delivery-s3-cloudfront.md) | Private S3 bucket (OAC), a CloudFront distribution with two origins (S3 + ALB), `/api/*` routing, SPA fallback, free HTTPS — one global URL for the whole app. |
 
-### Phases 6–8 — coming next (built as you progress)
+### Phase 6 — Serverless
 
-6. **Serverless** — API Gateway + Lambda + DynamoDB + X-Ray; SES contact form.
+| Doc | What you'll learn / do |
+|-----|------------------------|
+| [16 — Audit Log: API Gateway + Lambda + DynamoDB + X-Ray](docs/16-serverless-audit-log-lambda-dynamodb.md) | An HTTP API → Lambda → DynamoDB audit feature with `Active` X-Ray tracing and least-privilege IAM. |
+| [17 — Contact Form: Lambda + SES](docs/17-serverless-contact-form-lambda-ses.md) | Verified SES identities, a Lambda that sends real email, and the sandbox gotcha; optional React `ContactForm` wiring. |
+
+### Phases 7–8 — coming next (built as you progress)
+
 7. **Observability** — CloudWatch dashboards, alarms, logs, the Cost tools.
 8. **Wrap-up** — CI/CD, the interview story, and a full teardown guide.
 
