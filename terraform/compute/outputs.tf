@@ -26,3 +26,8 @@ output "target_group_arn" {
   description = "ARN of the app target group"
   value       = aws_lb_target_group.app.arn
 }
+
+output "alb_arn_suffix" {
+  description = "ALB ARN suffix — the LoadBalancer dimension value in CloudWatch ALB metrics"
+  value       = aws_lb.app.arn_suffix
+}
