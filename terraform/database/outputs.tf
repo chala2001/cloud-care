@@ -19,3 +19,8 @@ output "db_secret_arn" {
   description = "Secrets Manager ARN holding the DB credentials"
   value       = aws_secretsmanager_secret.db.arn
 }
+
+output "db_identifier" {
+  description = "RDS instance identifier — the DBInstanceIdentifier dimension in CloudWatch RDS metrics"
+  value       = aws_db_instance.main.id
+}
