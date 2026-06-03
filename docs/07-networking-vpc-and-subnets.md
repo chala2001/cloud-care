@@ -439,7 +439,7 @@ terraform fmt
 terraform validate
 
 # 3) Dry run — READ THIS before applying.
-terraform plan
+terraform plan.
 ```
 
 You should see **`Plan: 16 to add, 0 to change, 0 to destroy.`** That's:
