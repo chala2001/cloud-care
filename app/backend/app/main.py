@@ -24,9 +24,9 @@ app.add_middleware(
 
 # The endpoint the ALB target group health-checks. Keep it cheap and dependency-
 # free so it stays green even if the DB hiccups momentarily.
-# @app.get("/health")
-# def health():
-#     return {"status": "ok"}
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 # @app.get("/patients", response_model=list[schemas.PatientOut])
