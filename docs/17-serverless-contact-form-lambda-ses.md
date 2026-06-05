@@ -10,6 +10,34 @@
 
 ---
 
+## 0. Beginner read-me first — vocabulary in one place
+
+SES (Simple Email Service) brings new vocabulary on top of the Lambda/API
+Gateway terms from Doc 16. Re-read this whenever a term feels foreign.
+
+| Word | Plain-English meaning |
+|---|---|
+| **SES** (Simple Email Service) | AWS's managed email-sending service. Like Gmail-as-an-API: your code calls `ses.send_email(...)` and AWS delivers it. |
+| **Sandbox mode** | The restricted "training-wheels" state every new AWS account starts in for SES. Sender + recipient must be verified; tight daily caps. |
+| **Production access** | The mode after AWS verifies your account. Only sender needs verification; you can email any recipient; bigger sending caps. Requested via a short form. |
+| **Identity** | A verified email address or domain. SES will only send to/from things it has identities for (in sandbox). |
+| **Verified / Unverified** | Whether you clicked AWS's "confirm" link for that identity. Required for sandbox sends. |
+| **`aws_sesv2_email_identity`** | Terraform resource that registers an address/domain with SES. **Creating the resource sends the verification email; clicking is up to a human.** |
+| **`ses:SendEmail`** | The IAM action permitting the function to call SES's SendEmail API. |
+| **`ses:FromAddress` condition** | An IAM condition that pins the role to a specific From address — even if the code changes, IAM refuses a different sender. |
+| **`MessageRejected`** | SES's error when sending is blocked — usually because an identity isn't verified yet. |
+| **`FromEmailAddress`** | The From address SES uses on the sent email. Must match a verified identity (in sandbox). |
+| **`ReplyToAddresses`** | Address(es) the recipient's "Reply" button targets. Different from the From — lets the admin reply to the visitor, not to your no-reply sender. |
+| **DKIM/SPF/DMARC** | Email-authenticity standards. AWS handles them for `*.amazonses.com` domains; you'd configure them on your own domain for production. |
+| **Gmail `+` aliasing** | A trick where `user+tag@gmail.com` and `user@gmail.com` both deliver to the same inbox, but SES treats them as **different identities**. Useful when you want sender ≠ recipient but only have one inbox. |
+| **AWS-managed `cors_configuration`** | API Gateway HTTP API handles CORS preflight/headers automatically — no Lambda code needed for `OPTIONS`. |
+| **Throttling burst vs rate** | API Gateway throttling has two knobs: `burst` = max instantaneous; `rate` = sustained req/s. |
+| **`MessageRejected: Email address is not verified`** | The classic sandbox error — recheck your identities. |
+
+Now the architecture.
+
+---
+
 ## 1. What we're building
 
 ```
@@ -30,6 +58,27 @@ hospital admin's inbox a moment later.
 > servers makes no sense; (2) it's **isolation** — a bug in this code path can't
 > bring down the patients API. Separate concerns → separate runtimes.
 
+### How the three actors interact (and don't)
+
+```
+Terraform (at apply time)
+   ├─► creates SES identities      → AWS auto-sends verification emails
+   ├─► creates Lambda + IAM role
+   ├─► creates API Gateway → Lambda integration
+   └─► returns api_url
+
+You (one-time, manual)
+   └─► click the verification links in both inboxes
+
+Runtime (each form submission)
+   browser  ─► API Gateway (HTTP)   ─► Lambda   ─► SES SendEmail   ─► inbox
+              (CORS, throttling)       (validates)  (IAM-gated)        (delivery)
+```
+
+The crucial bit: **Terraform can create the identities, but only a human clicking
+the link "verifies" them.** Until that's done, `ses.send_email(...)` returns
+`MessageRejected` and no mail arrives.
+
 ---
 
 ## 2. ⚠️ The SES sandbox (read first)
@@ -49,9 +98,24 @@ short form; AWS reviews and lifts the sandbox). Mention this in interviews — "
 verified identities for the lab; production would request sandbox removal" — it
 shows you know the operational gotcha.
 
+### What changes between sandbox and production
+
+| Restriction | Sandbox | Production |
+|---|---|---|
+| Recipient must be verified | ✅ yes | ❌ no — email anyone |
+| Sender must be verified | ✅ yes | ✅ yes (or its domain via DKIM) |
+| Daily cap | 200/day | starts at 50k/day, grows with reputation |
+| Per-second rate | 1 msg/sec | starts at 14/sec, grows |
+| Bounce/complaint tracking required | optional | yes (SES enforces handling) |
+
 > 💡 **Same email for both is fine for the lab.** If you want to test entirely
-> with your own inbox, set sender = recipient = `chalaka@wso2.com`. Two
-> verifications, but you'll receive your own form submissions.
+> with your own inbox, use Gmail's `+` aliasing:
+> - sender = `chalakasamith+sender@gmail.com`
+> - recipient = `chalakasamith@gmail.com`
+>
+> Both deliver to the same Gmail inbox, but SES treats them as two distinct
+> identities (no duplicate-identity error). You'll click two verification links
+> in the same inbox.
 
 ---
 
@@ -75,6 +139,20 @@ terraform/
     └── src/
         └── lambda_function.py
 ```
+
+### File-purpose table
+
+| File | One-line purpose |
+|---|---|
+| `providers.tf` | AWS + archive providers; state under `serverless/contact/`. |
+| `variables.tf` | Inputs: region, project, **and the two email addresses (no defaults — required)**. |
+| `terraform.tfvars.example` | Template of the variables you must supply (committed). Real `terraform.tfvars` (gitignored) holds your actual addresses. |
+| `ses.tf` | Two `aws_sesv2_email_identity` resources — sender + recipient. |
+| `iam.tf` | Lambda role with `AWSLambdaBasicExecutionRole` (logs) + a scoped `ses:SendEmail` policy. |
+| `src/lambda_function.py` | The handler: validate body, call `ses.send_email`, return JSON. |
+| `lambda.tf` | Zip `src/`, pre-create the log group, deploy the function. |
+| `apigw.tf` | HTTP API + one route (`POST /contact`) + stage + invoke permission. |
+| `outputs.tf` | Publish the full `/contact` URL + function name. |
 
 ---
 
@@ -138,6 +216,16 @@ variable "recipient_email" {
 }
 ```
 
+### Walk-through — the new bits
+
+| Line | Meaning |
+|---|---|
+| `key = "serverless/contact/terraform.tfstate"` | New state path — sits next to `serverless/audit/`. |
+| `Component = "serverless-contact"` | Distinct from the audit stack's tag → separate cost-explorer rows. |
+| `variable "sender_email" / "recipient_email"` | **No `default`** — Terraform refuses to apply without values, forcing you to confirm both addresses. |
+
+### Create a `terraform.tfvars` to supply the addresses
+
 Create a `terraform.tfvars` next to it (gitignored — it has personal email
 addresses, not secrets but still good to keep out of git):
 
@@ -146,6 +234,20 @@ addresses, not secrets but still good to keep out of git):
 sender_email    = "chalaka@wso2.com"
 recipient_email = "chalaka@wso2.com"
 ```
+
+Or pass them on the command line:
+
+```bash
+terraform apply \
+  -var='sender_email=chalakasamith+sender@gmail.com' \
+  -var='recipient_email=chalakasamith@gmail.com'
+```
+
+> ⚠️ **If sender == recipient as the exact same string**, you'll get a
+> "ResourceAlreadyExists" error when applying — the two `aws_sesv2_email_identity`
+> resources collide on the same email. Either use **Gmail's `+` aliasing** to
+> create two distinct strings that both deliver to one inbox, or pick two real
+> addresses you control.
 
 ---
 
@@ -167,6 +269,27 @@ resource "aws_sesv2_email_identity" "recipient" {
   email_identity = var.recipient_email
 }
 ```
+
+### Walk-through
+
+Two resources, identical shape, different inputs.
+
+| Line | Meaning |
+|---|---|
+| `resource "aws_sesv2_email_identity" "sender"` | Register an SES identity. The `v2` suffix is the modern API; `v1` (`aws_ses_email_identity`) still works but is older. |
+| `email_identity = var.sender_email` | The address to register. AWS auto-sends a verification email **to that address** when the resource is created. |
+
+What happens during apply:
+
+1. Terraform calls `CreateEmailIdentity` for the sender.
+2. AWS sends `no-reply-aws@amazon.com` an email to that address with the verification link.
+3. Same for the recipient.
+4. **Terraform finishes** — the resources exist but with `VerificationStatus = PENDING`.
+5. You (human) open the inbox, click the link.
+6. SES flips the status to `SUCCESS`.
+
+Until step 5, every `ses.send_email` call from the Lambda fails with
+`MessageRejected: Email address is not verified`.
 
 > 🧠 **Why both?** In sandbox mode SES rejects sends where *either* the From or
 > any To/Cc/Bcc is unverified. Verifying the recipient too lets the lab actually
@@ -222,16 +345,96 @@ resource "aws_iam_role_policy" "send_email" {
 }
 ```
 
+### Walk-through
+
+#### Blocks 1 & 2 — trust + the role (familiar pattern)
+
+Same trust-policy + role pattern as Doc 16: principal is
+`lambda.amazonaws.com`. The role exists; no permissions yet.
+
+#### Block 3 — basic execution (CloudWatch Logs)
+
+`AWSLambdaBasicExecutionRole` again — every Lambda needs this to write logs.
+
+#### Block 4 — the scoped `ses:SendEmail` policy
+
+```hcl
+data "aws_iam_policy_document" "send_email" {
+  statement {
+    actions   = ["ses:SendEmail"]
+    resources = [aws_sesv2_email_identity.sender.arn]
+    condition {
+      test     = "StringEquals"
+      variable = "ses:FromAddress"
+      values   = [var.sender_email]
+    }
+  }
+}
+```
+
+| Line | Meaning |
+|---|---|
+| `actions = ["ses:SendEmail"]` | Just the one send action. No `ses:*`. |
+| `resources = [aws_sesv2_email_identity.sender.arn]` | Just the **sender identity's** ARN — the role can't send via any other identity. |
+| `condition { variable = "ses:FromAddress", values = [var.sender_email] }` | **Extra belt-and-braces**: only allow the call if the actual `From` address in the request equals our configured sender. If the code is modified to spoof another From, IAM refuses. |
+
 > 🧠 **The `ses:FromAddress` condition** stops the function from being abused as
 > a generic mailer for *any* sender on the account. Even if the Lambda code
 > changed to pass a different `FromEmailAddress`, IAM would reject the call.
 > Conditions like this are what make "least privilege" actually mean something.
+
+#### Block 5 — attach the policy
+
+```hcl
+resource "aws_iam_role_policy" "send_email" {
+  name   = "${var.project}-send-email"
+  role   = aws_iam_role.contact.id
+  policy = data.aws_iam_policy_document.send_email.json
+}
+```
+
+`aws_iam_role_policy` (inline) — appropriate for a per-role custom rule.
+
+### ⚠️ A subtle SES behavior worth knowing
+
+When the **recipient address is also a verified identity** in your account
+(common in sandbox where you verified both ends), SES checks
+`ses:SendEmail` against **both** the sender identity ARN **and** the recipient
+identity ARN. The policy above only allows the sender — so a send between two
+of your own verified identities is **denied** with:
+
+```
+AccessDeniedException: User <role> is not authorized to perform
+ses:SendEmail on resource <recipient identity ARN>
+```
+
+**The fix is to list both ARNs in the `resources` list:**
+
+```hcl
+resources = [
+  aws_sesv2_email_identity.sender.arn,
+  aws_sesv2_email_identity.recipient.arn,
+]
+```
+
+The `FromAddress` condition still restricts the role to sending **as** the
+sender only.
+
+> 🧠 In real production, the recipient is some external `customer@example.com`
+> (not verified in your account), so SES doesn't ask IAM about it — the original
+> "just the sender ARN" policy works. The double-ARN trick is sandbox-specific.
 
 ---
 
 ## 7. `src/lambda_function.py` — the handler
 
 Create `terraform/serverless-contact/src/lambda_function.py`:
+
+> ⚠️ **Watch the filename.** Lambda's handler is `lambda_function.lambda_handler`,
+> which means Lambda imports `lambda_function.py`. Typos like
+> `lambda_funtion.py` (missing the `c`) produce
+> `Runtime.ImportModuleError: Unable to import module 'lambda_function'` at
+> invocation time — a brutal mismatch to debug without this hint.
 
 ```python
 # terraform/serverless-contact/src/lambda_function.py
@@ -286,13 +489,92 @@ def lambda_handler(event, context):
     return _resp(200, {"status": "sent"})
 ```
 
-> 🧠 **`ReplyToAddresses=[email]`** is the small detail that makes the admin's
-> "Reply" button do the right thing: their reply goes to the visitor, not back to
-> the SES-verified sender (which is often a noreply alias). One line, big UX win.
+### Walk-through
+
+#### Module-level setup (runs once per cold start)
+
+```python
+ses = boto3.client("sesv2")
+SENDER    = os.environ["SENDER_EMAIL"]
+RECIPIENT = os.environ["RECIPIENT_EMAIL"]
+```
+
+| Line | Meaning |
+|---|---|
+| `boto3.client("sesv2")` | The **low-level SESv2** client. `sesv2` is the modern API; `ses` (v1) still works but uses different param names. |
+| `SENDER / RECIPIENT = os.environ[...]` | Read env vars set by `lambda.tf`. Module-level → cached across warm invocations. |
+
+#### Method gate
+
+```python
+method = event.get("requestContext", {}).get("http", {}).get("method")
+if method != "POST":
+    return _resp(405, {"error": "method not allowed"})
+```
+
+Only POST is valid. Anything else (GET, PUT, etc.) → 405. Defense in depth —
+the API Gateway route is also locked to `POST /contact`, but rejecting in code
+is cheap.
+
+#### Input validation
+
+```python
+try:
+    body = json.loads(event.get("body") or "{}")
+    name    = body["name"].strip()
+    email   = body["email"].strip()
+    message = body["message"].strip()
+except (KeyError, AttributeError, ValueError):
+    return _resp(400, {"error": "name, email, and message are required"})
+
+if not (name and email and message):
+    return _resp(400, {"error": "all fields must be non-empty"})
+```
+
+| Piece | Meaning |
+|---|---|
+| `json.loads(event.get("body") or "{}")` | Parse the request body as JSON. `or "{}"` defaults to empty if missing. |
+| `body["name"].strip()` | Pull the field; `.strip()` removes leading/trailing whitespace. **Raises KeyError if the field is missing** — caught below. |
+| `except (KeyError, AttributeError, ValueError)` | Catches: missing key, `.strip()` called on non-string, bad JSON. All become a clean 400. |
+| `if not (name and email and message)` | Catch the "field present but empty string" case — also 400. |
 
 > ⚠️ **The handler validates inputs by hand** — keep it strict at the edge. A
 > public unauthenticated endpoint will get garbage payloads almost immediately;
 > never trust the shape.
+
+#### The send call
+
+```python
+ses.send_email(
+    FromEmailAddress=SENDER,
+    Destination={"ToAddresses": [RECIPIENT]},
+    ReplyToAddresses=[email],
+    Content={
+        "Simple": {
+            "Subject": {"Data": f"CloudCare contact from {name}"},
+            "Body": {
+                "Text": {"Data": f"From: {name} <{email}>\n\n{message}"}
+            },
+        }
+    },
+)
+```
+
+| Param | Meaning |
+|---|---|
+| `FromEmailAddress=SENDER` | The From address. **Must match a verified identity** (sandbox) and the `ses:FromAddress` IAM condition. |
+| `Destination={"ToAddresses": [RECIPIENT]}` | Where to send. `ToAddresses` is a list; could be many. |
+| `ReplyToAddresses=[email]` | **The submitter's email.** When the admin hits "Reply", it goes to the visitor — not back to our verified sender. |
+| `Content.Simple.Subject.Data` | The subject line. |
+| `Content.Simple.Body.Text.Data` | The plain-text body. There's also `Body.Html.Data` for an HTML version. |
+
+The nested-dict shape is the SESv2 API's `EmailContent` schema — `Simple`
+means "I'm providing subject + body inline" (vs `Raw` for full MIME or
+`Template` for a saved SES template).
+
+> 🧠 **`ReplyToAddresses=[email]`** is the small detail that makes the admin's
+> "Reply" button do the right thing: their reply goes to the visitor, not back to
+> the SES-verified sender (which is often a noreply alias). One line, big UX win.
 
 ---
 
@@ -334,6 +616,19 @@ resource "aws_lambda_function" "contact" {
   depends_on = [aws_cloudwatch_log_group.contact]
 }
 ```
+
+### Walk-through
+
+Identical structure to Doc 16's `lambda.tf`. Differences worth noting:
+
+| Difference | Meaning |
+|---|---|
+| `function_name = "${var.project}-contact"` | A different name → a different log group (`/aws/lambda/cloudcare-contact`). |
+| `environment.variables.SENDER_EMAIL / RECIPIENT_EMAIL` | The Python code reads these via `os.environ`. They're set from the Terraform variables. |
+| **No `tracing_config`** | X-Ray could be turned on here too, but it's not pedagogically needed — the audit stack already demonstrated it. Add `tracing_config { mode = "Active" }` + an attached `AWSXRayDaemonWriteAccess` policy if you want traces here. |
+
+Everything else (archive zipping, pre-created log group, `source_code_hash`,
+`depends_on`) works the same way as in Doc 16 §7.
 
 ---
 
@@ -388,6 +683,15 @@ resource "aws_lambda_permission" "apigw_invoke" {
 }
 ```
 
+This is structurally identical to Doc 16's `apigw.tf` with three deliberate
+differences worth highlighting:
+
+| Diff | Why |
+|---|---|
+| Only one route (`POST /contact`) instead of two | Contact form is single-purpose. |
+| `allow_methods = ["POST", "OPTIONS"]` | Just what's needed. `OPTIONS` is the browser's CORS preflight verb. |
+| `throttling_rate_limit = 5` (vs 100 for audit) | **Anti-abuse.** A real contact form should never get more than a handful of submissions per second. A bot hitting it would inflate your SES bill and blow the sandbox/production rate caps. |
+
 > 🧠 **Tight throttling on a public form is a tiny abuse-prevention measure.** A
 > bot hitting the form a thousand times a minute would (a) inflate your SES bill
 > and (b) blow the SES sandbox/production rate limits. 5 req/s with a burst of 10
@@ -411,9 +715,16 @@ output "function_name" {
 }
 ```
 
+| Output | What it is |
+|---|---|
+| `contact_api_url` | **The full URL including `/contact`** — Terraform concatenates `api_endpoint` with the route path so you can `curl $contact_api_url` directly. (Beware: don't append `/contact` again — the user-debug story of this project includes that exact 404 mistake.) |
+| `function_name` | The Lambda's name → used with `aws logs tail /aws/lambda/...`. |
+
 ---
 
 ## 11. Apply, verify the emails, send a message
+
+### Step 1 — Apply
 
 ```bash
 export AWS_PROFILE=cloudcare
@@ -427,14 +738,50 @@ terraform plan      # ~12 to add
 terraform apply
 ```
 
-After apply, **check the inbox for `var.sender_email` and `var.recipient_email`
-and click both verification links AWS sent.** Confirm they're verified:
+What happens during apply:
+1. AWS creates the two SES email identities.
+2. **AWS sends two verification emails** — one to `var.sender_email`, one to `var.recipient_email`.
+3. IAM role + policies created.
+4. Lambda zipped, log group pre-created, function deployed.
+5. HTTP API + integration + route + stage + invoke permission created.
+6. Outputs printed including `contact_api_url`.
+
+### Step 2 — Click both verification links
+
+Open the inbox(es) for the sender and recipient addresses. You'll see two
+emails from `no-reply-aws@amazon.com` with subjects like *"Amazon Web Services
+– Email Address Verification Request in region ap-south-1."* **Click the
+"Confirm" link in each.**
+
+### Step 3 — Confirm both are verified
 
 ```bash
-aws sesv2 list-email-identities --query 'EmailIdentities[].{Email:IdentityName,Verified:VerifiedForSendingStatus}' --output table
+aws sesv2 list-email-identities \
+  --query 'EmailIdentities[].{Email:IdentityName,VerificationStatus:VerificationStatus,Sending:SendingEnabled}' \
+  --output table
 ```
 
-Both should say `Verified: True`. Now send:
+Look for:
+```
+Email                              VerificationStatus    Sending
+chalakasamith+sender@gmail.com     SUCCESS               True
+chalakasamith@gmail.com            SUCCESS               True
+```
+
+| Status value | Meaning |
+|---|---|
+| `NOT_STARTED` / null | Just created, verification email not clicked yet |
+| `PENDING` | Sent, waiting for click |
+| `SUCCESS` | ✅ Verified, usable for sending |
+| `FAILED` | Verification expired (>24h) or rejected — re-verify via the console |
+
+> ⚠️ **Earlier in the project we ran the query with `VerifiedForSendingStatus`**
+> (which doesn't exist on the `list-email-identities` response) and saw `None`
+> everywhere — looked like nothing was verified. The correct field on the **list**
+> API is **`VerificationStatus`**. The field name `VerifiedForSendingStatus` exists
+> only on the `get-email-identity` (single-identity) response.
+
+### Step 4 — Send a test message
 
 ```bash
 URL=$(terraform output -raw contact_api_url)
@@ -444,14 +791,29 @@ curl -X POST "$URL" -H "Content-Type: application/json" \
 # → {"status": "sent"}
 ```
 
+> ⚠️ **POST to `$URL`, not `$URL/contact`.** The `contact_api_url` output already
+> ends with `/contact`. Appending another `/contact` gives `/contact/contact` →
+> API Gateway 404. (Yes, this is exactly the mistake we debugged live.)
+
 Check the inbox of `recipient_email` — the email arrives within seconds, with
 "Reply" pointing back to `asha@example.com`.
 
-If you get `{"error": "..."}` or a 5xx, check the logs:
+### Step 5 — Inspect logs if anything misbehaves
 
 ```bash
 aws logs tail "/aws/lambda/$(terraform output -raw function_name)" --since 5m
 ```
+
+### Common failures and fixes
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Runtime.ImportModuleError: No module named 'lambda_function'` | Filename typo (`lambda_funtion.py` etc.) | Rename to exactly `lambda_function.py`, re-apply (force redeploys via `source_code_hash`) |
+| `HTTP 200` but no email arrives | Identity not verified yet | Click the verification email; recheck status |
+| `MessageRejected: Email address is not verified` (in logs) | Sandbox + one identity unverified | Click the verification link for the unverified one |
+| `AccessDeniedException ... ses:SendEmail on resource <recipient ARN>` | IAM policy only lists sender ARN; sandbox checks both | Add recipient ARN to the policy's `resources` list (§6) |
+| `HTTP 404 "Not Found"` from API GW | URL was `$URL/contact` (doubled) | POST to `$URL` directly — output already includes `/contact` |
+| `ResourceAlreadyExists` on `terraform apply` | Sender and recipient are the exact same string | Use Gmail `+` aliasing (or two real addresses) |
 
 > ⚠️ **`MessageRejected: Email address is not verified`** = you didn't click both
 > verification links yet. Re-check the inbox (including spam) and verify, then
@@ -541,6 +903,66 @@ This stack is independent of everything else, so destroy/recreate freely.
 
 ---
 
+## 14. Plain-English summary (what you just built)
+
+If asked to explain Phase 6 part 2:
+
+1. **Two SES email identities** — sender (`+sender@…`) and recipient — both
+   verified via clicking links AWS sent at apply time. **Required by SES
+   sandbox** (sandbox refuses sends where either end is unverified).
+2. **One Lambda function** (`cloudcare-contact`) — POST-only, validates name +
+   email + message, calls `sesv2.send_email` with the visitor's email as
+   `ReplyToAddresses` so the admin's "Reply" lands in the right inbox.
+3. **One IAM role** scoped to **just `ses:SendEmail`** on the sender's identity
+   ARN (and recipient's, because both are in our account during sandbox), with
+   a **`ses:FromAddress` condition** locking the role to sending **as** the
+   exact sender.
+4. **One HTTP API** with one route (`POST /contact`), built-in CORS,
+   throttled to 5 req/s with burst 10 (anti-abuse), AWS_PROXY integration to
+   the Lambda, and the standard `aws_lambda_permission` allowing API GW to
+   invoke.
+5. End-to-end: `curl POST` to the URL → JSON-validated payload → SES email
+   delivered with admin "Reply" set to the visitor's address.
+
+---
+
+## 15. Interview soundbites
+
+- **Why Lambda + SES** — *"The contact form fires rarely and is independent of
+  the main app. Running it on serverless means no idle cost and the patients
+  API can't be brought down by a bug in the form's code path. Right scaling
+  shape, right blast radius."*
+
+- **SES sandbox** — *"AWS keeps every account in SES sandbox until you request
+  production access. In sandbox both sender and recipient must be verified;
+  caps are 200/day, 1/sec. Production access removes the recipient-side
+  restriction. For the lab we verify both identities; for production we'd file
+  the sandbox-removal form once."*
+
+- **The `ses:FromAddress` condition** — *"The IAM policy not only scopes
+  `ses:SendEmail` to the sender's ARN, it adds a condition pinning the actual
+  From address to our exact sender. Even a bad code change can't make this role
+  email *as* a different identity — IAM refuses at the API layer."*
+
+- **`ReplyToAddresses`** — *"The From address is the verified SES sender — often
+  a no-reply alias. `ReplyToAddresses` lets us set the visitor's email as the
+  reply target, so the admin's 'Reply' goes to the right place. One line, big
+  UX win."*
+
+- **The "both verified identities" IAM subtlety** — *"In sandbox, when both
+  ends are verified identities in my account, SES checks `ses:SendEmail`
+  against both identity ARNs. The fix is listing both ARNs in the policy's
+  resources, with the `FromAddress` condition still locking the sender. In
+  production with sandbox lifted, the recipient isn't in my account and only
+  the sender ARN matters."*
+
+- **Throttling on public endpoints** — *"The HTTP API is rate-limited to 5
+  req/s with burst 10. A contact form should never burst higher — a bot hitting
+  the endpoint would inflate SES costs and trip sandbox/production caps. Tiny
+  config, real abuse prevention."*
+
+---
+
 ## ✅ Checkpoint — end of Phase 6 🎉
 
 You've built both serverless slices of CloudCare. You should now have:
@@ -557,6 +979,8 @@ And you can explain, from memory:
 - The SES sandbox and how you'd remove it for production.
 - Why we scoped the IAM `ses:SendEmail` with a `ses:FromAddress` condition.
 - The role of HTTP API throttling on a public form.
+- Why both identity ARNs must be in the IAM policy when both are verified in
+  your account (sandbox-specific subtlety).
 
 > 💰 **Both serverless stacks are essentially free** — you can leave them up.
 > The expensive stuff (compute + database) is still where to apply destroy-after-
