@@ -1,4 +1,4 @@
-# app/backend/app/schemas.py
+# app/backend/app/schemas.py file
 from datetime import datetime, date
 from pydantic import BaseModel, ConfigDict
 
