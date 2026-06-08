@@ -9,6 +9,13 @@ permissions:
   id-token: write
   contents: read
 
+# Only one backend deploy per branch at a time. We do NOT cancel-in-progress —
+# AWS allows only one instance refresh per ASG. Two parallel runs would race and
+# the loser would die with "InstanceRefreshInProgress". Queue them instead.
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   AWS_REGION: ap-south-1
 
@@ -46,6 +53,28 @@ jobs:
 
       - name: Roll the ASG so instances pull the new image
         run: |
-          aws autoscaling start-instance-refresh \
+          # Start the refresh and capture its ID so we can poll it.
+          REFRESH_ID=$(aws autoscaling start-instance-refresh \
             --auto-scaling-group-name "$ASG" \
-            --preferences MinHealthyPercentage=50
+            --preferences MinHealthyPercentage=50 \
+            --query 'InstanceRefreshId' --output text)
+          echo "Started refresh $REFRESH_ID — waiting for it to finish..."
+
+          # Poll every 30s until the refresh finishes. We wait (rather than fire-and-
+          # forget) so the NEXT backend deploy doesn't collide with this refresh.
+          while true; do
+            STATUS=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name "$ASG" \
+              --instance-refresh-ids "$REFRESH_ID" \
+              --query 'InstanceRefreshes[0].Status' --output text)
+            PCT=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name "$ASG" \
+              --instance-refresh-ids "$REFRESH_ID" \
+              --query 'InstanceRefreshes[0].PercentageComplete' --output text)
+            echo "  status=$STATUS  progress=${PCT}%"
+            case "$STATUS" in
+              Successful)            echo "Refresh complete."; break ;;
+              Failed|Cancelled)      echo "Refresh ended in $STATUS"; exit 1 ;;
+              *)                     sleep 30 ;;
+            esac
+          done
