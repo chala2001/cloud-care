@@ -1,7 +1,7 @@
 # terraform/serverless-contact/outputs.tf
 
 output "contact_api_url" {
-  description = "Public POST /contact endpoint"
+  description = "Public POST  /contact endpoint"
   value       = "${aws_apigatewayv2_api.contact.api_endpoint}/contact"
 }
 
