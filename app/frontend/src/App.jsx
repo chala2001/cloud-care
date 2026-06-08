@@ -1,4 +1,4 @@
-// app/frontend/src/App.jsx
+// app/frontend/src/App.jsx file
 import { useEffect, useState } from "react";
 import { api } from "./api";
 
