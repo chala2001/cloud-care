@@ -11,7 +11,7 @@ variable "project" {
   default     = "cloudcare"
 }
 
-# Required — no defaults, so you can't accidentally email someone else's address.
+# Required — no defaults, so you cant accidentally email someone else's address.
 variable "sender_email" {
   description = "Verified SES sender (the From: address shown to the recipient)"
   type        = string
