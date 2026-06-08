@@ -10,7 +10,7 @@
 *.tfstate
 *.tfstate.*
 crash.log
-*.tfvars            # may contain secrets; commit *.tfvars.example instead
+# *.tfvars            # may contain secrets; commit *.tfvars.example instead
 
 # Python / Node build junk (for the app later)
 __pycache__/
