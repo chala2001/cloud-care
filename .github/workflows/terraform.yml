@@ -12,6 +12,14 @@ permissions:
   id-token: write
   contents: read
 
+# Only one Terraform run per branch at a time. We do NOT cancel-in-progress —
+# killing a run mid-apply leaves an orphan lock in DynamoDB that blocks every
+# future run until someone force-unlocks it. Better to let the previous run
+# finish cleanly and queue the new one behind it.
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   AWS_REGION: ap-south-1
   # Dependency-ordered list. Apply runs the loop top-to-bottom; destroy would
@@ -40,10 +48,12 @@ jobs:
             echo "::group::terraform $stack"
             cd "terraform/$stack"
             terraform init -input=false
+            # -lock-timeout=5m: if another run holds the state lock, wait up to
+            # 5 minutes for it to release instead of dying immediately.
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-              terraform plan -input=false -no-color
+              terraform plan -input=false -no-color -lock-timeout=5m
             else
-              terraform apply -input=false -auto-approve
+              terraform apply -input=false -auto-approve -lock-timeout=5m
             fi
             cd - > /dev/null
             echo "::endgroup::"
