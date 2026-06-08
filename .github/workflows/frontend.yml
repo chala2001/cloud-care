@@ -1,13 +1,21 @@
-name: Backend image
+name: Frontend deploy
 
+# Only run when the React app changes — not when backend changes.
 on:
   push:
     branches: [main]
-    paths: ["app/backend/**", ".github/workflows/backend.yml"]
+    paths: ["app/frontend/**", ".github/workflows/frontend.yml"]
 
 permissions:
   id-token: write
   contents: read
+
+# One frontend deploy per branch at a time. We don't cancel-in-progress so the
+# previous deploy finishes its CloudFront invalidation cleanly before the next
+# one starts.
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   AWS_REGION: ap-south-1
@@ -23,29 +31,51 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: app/frontend/package-lock.json
 
       - uses: hashicorp/setup-terraform@v3
 
-      - name: Read ECR URL and ASG name from compute state
+      - name: Read S3 bucket and CloudFront distribution id from cdn state
         run: |
-          cd terraform/compute
+          cd terraform/cdn
           terraform init -input=false
           {
-            echo "REPO=$(terraform output -raw ecr_repository_url)"
-            echo "ASG=$(terraform output -raw asg_name)"
+            echo "BUCKET=$(terraform output -raw frontend_bucket)"
+            echo "DIST_ID=$(terraform output -raw cloudfront_distribution_id)"
           } >> "$GITHUB_ENV"
 
-      - name: Build & push image
+      - name: Install dependencies and build
+        working-directory: app/frontend
+        # VITE_API_URL is baked into the bundle at build time. Empty string means
+        # the app uses relative URLs (e.g. fetch('/api/...')), which CloudFront
+        # routes to the ALB origin. Override via repo variable if you need an
+        # absolute URL.
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: |
-          cd app/backend
-          # Tag with both the commit SHA (immutable) and :latest (what the LT pulls)
-          docker build -t "$REPO:${GITHUB_SHA}" -t "$REPO:latest" .
-          docker push "$REPO:${GITHUB_SHA}"
-          docker push "$REPO:latest"
+          npm ci
+          npm run build
 
-      - name: Roll the ASG so instances pull the new image
+      - name: Sync built assets to S3
+        # --delete removes files in the bucket that aren't in dist/ anymore
+        # (old hashed JS/CSS bundles from previous deploys).
         run: |
-          aws autoscaling start-instance-refresh \
-            --auto-scaling-group-name "$ASG" \
-            --preferences MinHealthyPercentage=50
+          aws s3 sync app/frontend/dist/ "s3://${BUCKET}/" --delete
+
+      - name: Invalidate CloudFront cache
+        # CloudFront serves index.html from edge caches; without an invalidation
+        # users keep seeing the old version until the cache expires.
+        run: |
+          INVALIDATION_ID=$(aws cloudfront create-invalidation \
+            --distribution-id "$DIST_ID" \
+            --paths "/*" \
+            --query 'Invalidation.Id' --output text)
+          echo "Created invalidation $INVALIDATION_ID — waiting for it to complete..."
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$DIST_ID" \
+            --id "$INVALIDATION_ID"
+          echo "Invalidation complete. Site is live."
