@@ -1,0 +1,51 @@
+name: Backend image
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/backend/**", ".github/workflows/backend.yml"]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Read ECR URL and ASG name from compute state
+        run: |
+          cd terraform/compute
+          terraform init -input=false
+          {
+            echo "REPO=$(terraform output -raw ecr_repository_url)"
+            echo "ASG=$(terraform output -raw asg_name)"
+          } >> "$GITHUB_ENV"
+
+      - name: Build & push image
+        run: |
+          cd app/backend
+          # Tag with both the commit SHA (immutable) and :latest (what the LT pulls)
+          docker build -t "$REPO:${GITHUB_SHA}" -t "$REPO:latest" .
+          docker push "$REPO:${GITHUB_SHA}"
+          docker push "$REPO:latest"
+
+      - name: Roll the ASG so instances pull the new image
+        run: |
+          aws autoscaling start-instance-refresh \
+            --auto-scaling-group-name "$ASG" \
+            --preferences MinHealthyPercentage=50

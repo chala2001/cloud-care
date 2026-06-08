@@ -1,0 +1,50 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+
+# OIDC needs id-token; reading the repo needs contents.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  # Dependency-ordered list. Apply runs the loop top-to-bottom; destroy would
+  # reverse it. cicd/ is excluded since it bootstraps THIS workflow.
+  STACKS: "bootstrap network database compute cdn serverless-audit serverless-contact observability"
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Plan or Apply each stack
+        run: |
+          set -euo pipefail
+          for stack in $STACKS; do
+            echo "::group::terraform $stack"
+            cd "terraform/$stack"
+            terraform init -input=false
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              terraform plan -input=false -no-color
+            else
+              terraform apply -input=false -auto-approve
+            fi
+            cd - > /dev/null
+            echo "::endgroup::"
+          done
