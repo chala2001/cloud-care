@@ -1,6 +1,6 @@
 # terraform/compute/alb.tf
 
-# 1) The load balancer — internet-facing, in the PUBLIC subnets, using alb-sg.
+# 1 The load balancer — internet-facing, in the PUBLIC subnets, using alb-sg.
 resource "aws_lb" "app" {
   name               = "${var.project}-alb"
   load_balancer_type = "application"
@@ -14,7 +14,7 @@ resource "aws_lb" "app" {
   tags = { Name = "${var.project}-alb" }
 }
 
-# 2) The target group — the instances answer on :8000. The health check hits "/"
+# 2 The target group — the instances answer on :8000. The health check hits "/"
 #    and expects HTTP 200 (our placeholder returns exactly that).
 resource "aws_lb_target_group" "app" {
   name        = "${var.project}-app-tg"
