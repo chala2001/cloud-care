@@ -48,46 +48,137 @@ export default function App() {
     }
   }
 
+  function badgeClass(status) {
+    switch ((status || "").toLowerCase()) {
+      case "scheduled": return "badge badge-scheduled";
+      case "completed": return "badge badge-completed";
+      case "cancelled":
+      case "canceled":  return "badge badge-cancelled";
+      default:          return "badge badge-default";
+    }
+  }
+
   return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 720, margin: "2rem auto", padding: "0 1rem" }}>
-      <h1>CloudCare HMS</h1>
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+    <>
+      <header className="app-header">
+        <div className="app-header-inner">
+          <div className="app-logo" aria-hidden="true">CC</div>
+          <div>
+            <h1 className="app-title">CloudCare HMS</h1>
+            <p className="app-subtitle">Hospital management system</p>
+          </div>
+        </div>
+      </header>
 
-      <section>
-        <h2>Patients</h2>
-        <form onSubmit={addPatient} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input required placeholder="Full name" value={patient.full_name}
-            onChange={(e) => setPatient({ ...patient, full_name: e.target.value })} />
-          <input required type="date" value={patient.date_of_birth}
-            onChange={(e) => setPatient({ ...patient, date_of_birth: e.target.value })} />
-          <input required placeholder="Phone" value={patient.phone}
-            onChange={(e) => setPatient({ ...patient, phone: e.target.value })} />
-          <button type="submit">Add patient</button>
-        </form>
-        <ul>
-          {patients.map((p) => (
-            <li key={p.id}>#{p.id} — {p.full_name} ({p.phone})</li>
-          ))}
-        </ul>
-      </section>
+      <main className="app-main">
+        {error && <p className="error">{error}</p>}
 
-      <section>
-        <h2>Appointments</h2>
-        <form onSubmit={bookAppointment} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input required type="number" placeholder="Patient id" value={appt.patient_id}
-            onChange={(e) => setAppt({ ...appt, patient_id: e.target.value })} />
-          <input required type="datetime-local" value={appt.scheduled_for}
-            onChange={(e) => setAppt({ ...appt, scheduled_for: e.target.value })} />
-          <input required placeholder="Reason" value={appt.reason}
-            onChange={(e) => setAppt({ ...appt, reason: e.target.value })} />
-          <button type="submit">Book</button>
-        </form>
-        <ul>
-          {appointments.map((a) => (
-            <li key={a.id}>#{a.id} — patient {a.patient_id}: {a.reason} [{a.status}]</li>
-          ))}
-        </ul>
-      </section>
-    </main>
+        <section className="card">
+          <div className="card-header">
+            <h2 className="card-title">Patients</h2>
+            <span className="card-count">{patients.length} total</span>
+          </div>
+          <div className="card-body">
+            <form onSubmit={addPatient} className="form-row">
+              <input
+                className="input"
+                required
+                placeholder="Full name"
+                value={patient.full_name}
+                onChange={(e) => setPatient({ ...patient, full_name: e.target.value })}
+              />
+              <input
+                className="input"
+                required
+                type="date"
+                value={patient.date_of_birth}
+                onChange={(e) => setPatient({ ...patient, date_of_birth: e.target.value })}
+              />
+              <input
+                className="input"
+                required
+                placeholder="Phone"
+                value={patient.phone}
+                onChange={(e) => setPatient({ ...patient, phone: e.target.value })}
+              />
+              <div className="form-action">
+                <button type="submit" className="btn">Add patient</button>
+              </div>
+            </form>
+
+            {patients.length === 0 ? (
+              <div className="empty">No patients yet. Add one above to get started.</div>
+            ) : (
+              <ul className="list">
+                {patients.map((p) => (
+                  <li key={p.id} className="list-item">
+                    <span className="id-chip">#{p.id}</span>
+                    <div className="item-body">
+                      <span className="item-primary">{p.full_name}</span>
+                      <span className="item-secondary">{p.phone}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="card-header">
+            <h2 className="card-title">Appointments</h2>
+            <span className="card-count">{appointments.length} total</span>
+          </div>
+          <div className="card-body">
+            <form onSubmit={bookAppointment} className="form-row">
+              <input
+                className="input"
+                required
+                type="number"
+                placeholder="Patient id"
+                value={appt.patient_id}
+                onChange={(e) => setAppt({ ...appt, patient_id: e.target.value })}
+              />
+              <input
+                className="input"
+                required
+                type="datetime-local"
+                value={appt.scheduled_for}
+                onChange={(e) => setAppt({ ...appt, scheduled_for: e.target.value })}
+              />
+              <input
+                className="input"
+                required
+                placeholder="Reason"
+                value={appt.reason}
+                onChange={(e) => setAppt({ ...appt, reason: e.target.value })}
+              />
+              <div className="form-action">
+                <button type="submit" className="btn">Book</button>
+              </div>
+            </form>
+
+            {appointments.length === 0 ? (
+              <div className="empty">No appointments yet. Book one above.</div>
+            ) : (
+              <ul className="list">
+                {appointments.map((a) => (
+                  <li key={a.id} className="list-item">
+                    <span className="id-chip">#{a.id}</span>
+                    <div className="item-body">
+                      <div className="item-body-row">
+                        <span className="item-primary">Patient {a.patient_id}</span>
+                        <span className={badgeClass(a.status)}>{a.status}</span>
+                      </div>
+                      <span className="item-secondary">{a.reason}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      </main>
+    </>
   );
 }
