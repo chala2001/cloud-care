@@ -16,7 +16,7 @@ env:
   AWS_REGION: ap-south-1
   # Dependency-ordered list. Apply runs the loop top-to-bottom; destroy would
   # reverse it. cicd/ is excluded since it bootstraps THIS workflow.
-  STACKS: "bootstrap network database compute cdn serverless-audit serverless-contact observability"
+  STACKS: "network database compute cdn serverless-audit serverless-contact observability"
 
 jobs:
   terraform:
