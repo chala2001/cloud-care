@@ -48,12 +48,26 @@ jobs:
             echo "DIST_ID=$(terraform output -raw cloudfront_distribution_id)"
           } >> "$GITHUB_ENV"
 
+      - name: Read serverless API URLs from terraform state
+        run: |
+          # Contact API URL — strip trailing /contact so the frontend code can
+          # uniformly append path segments to the base URL.
+          cd terraform/serverless-contact
+          terraform init -input=false
+          CONTACT_FULL=$(terraform output -raw contact_api_url)
+          echo "VITE_CONTACT_API_URL=${CONTACT_FULL%/contact}" >> "$GITHUB_ENV"
+          cd ../serverless-audit
+          terraform init -input=false
+          echo "VITE_AUDIT_API_URL=$(terraform output -raw api_url)" >> "$GITHUB_ENV"
+
       - name: Install dependencies and build
         working-directory: app/frontend
         # VITE_API_URL is baked into the bundle at build time. Empty string means
         # the app uses relative URLs (e.g. fetch('/api/...')), which CloudFront
         # routes to the ALB origin. Override via repo variable if you need an
         # absolute URL.
+        # VITE_CONTACT_API_URL and VITE_AUDIT_API_URL come from $GITHUB_ENV
+        # set in the previous step, so they're already in the shell environment.
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: |
