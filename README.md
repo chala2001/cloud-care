@@ -1,31 +1,156 @@
-# CloudCare HMS
+# CloudCare HMS — an AWS DevOps showcase
 
-> A production-style, AWS-native **Hospital Management System** demonstrating the
-> AWS Well-Architected Framework. Built entirely in Terraform across nine
-> isolated stacks, shipped through GitHub Actions with OIDC federation, and
-> designed to live inside the AWS Free Tier.
+> A small **Hospital Management System** used as the vehicle to build, operate,
+> and document a real production-style **AWS environment** with **Terraform** and
+> **GitHub Actions**. The interesting work happens under `terraform/` and
+> `.github/workflows/` — not in the web UI.
 
-CloudCare combines a classic **three-tier web application** (React + FastAPI +
-PostgreSQL) with two **serverless slices** (an audit log, and a contact form),
-fronted by a single CloudFront distribution. Everything is reproducible from
-code — `terraform apply` brings the whole stack up; `terraform destroy` returns
-you to ~$0.
+**Region** `ap-south-1` (Mumbai) · **IaC** Terraform 1.9+ ·
+**Backend** Python 3.12 + FastAPI · **Frontend** React 18 + Vite ·
+**Database** PostgreSQL 16 on RDS · **CI/CD** GitHub Actions + OIDC
 
-**Region:** `ap-south-1` (Mumbai) · **IaC:** Terraform 1.5+ ·
-**Backend:** Python 3.12 + FastAPI · **Frontend:** React 18 + Vite ·
-**Database:** PostgreSQL 16 on RDS · **CI/CD:** GitHub Actions + OIDC
+---
+
+## Scope — what this repo is and isn't
+
+This project is intentionally focused on the **DevOps and SRE side**:
+infrastructure-as-code, networking, IAM, deployment pipelines, observability,
+and cost control. The application logic (patients, appointments) is the
+simplest possible CRUD that gives the infrastructure something to host.
+
+> **UI/UX is out of scope.** The web frontend exists to prove the stack is wired
+> up end-to-end (`CloudFront → S3` for assets, `CloudFront → ALB → EC2 → RDS`
+> for the API). It is not designed as a product, and visual polish was not a
+> goal. To evaluate this project, read the Terraform stacks, the workflows, and
+> the architecture sections below.
+
+---
+
+## Tech stack
+
+Twenty-one tools, grouped by what they do in the system.
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h4>Cloud &amp; IaC</h4>
+      <p>
+        <img src="https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazonwebservices&logoColor=white" alt="AWS"/>
+        <img src="https://img.shields.io/badge/Terraform%201.9-7B42BC?style=for-the-badge&logo=terraform&logoColor=white" alt="Terraform"/>
+        <img src="https://img.shields.io/badge/S3%20%2B%20DynamoDB%20state-FF9900?style=for-the-badge&logo=amazon&logoColor=white" alt="S3+DDB state"/>
+      </p>
+      <sub>Infrastructure declared once, applied from anywhere; remote state with locking.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <h4>Network</h4>
+      <p>
+        <img src="https://img.shields.io/badge/VPC-232F3E?style=for-the-badge&logo=amazonaws&logoColor=white" alt="VPC"/>
+        <img src="https://img.shields.io/badge/Subnets-232F3E?style=for-the-badge" alt="Subnets"/>
+        <img src="https://img.shields.io/badge/NACLs-DD344C?style=for-the-badge" alt="NACLs"/>
+        <img src="https://img.shields.io/badge/Security%20Groups-DD344C?style=for-the-badge" alt="Security Groups"/>
+      </p>
+      <sub>Custom VPC across 2 AZs; defense-in-depth via SG chain plus stateless NACL backstops.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <h4>Compute</h4>
+      <p>
+        <img src="https://img.shields.io/badge/EC2-FF9900?style=for-the-badge&logo=amazonec2&logoColor=white" alt="EC2"/>
+        <img src="https://img.shields.io/badge/Auto%20Scaling-FF9900?style=for-the-badge" alt="ASG"/>
+        <img src="https://img.shields.io/badge/ALB-FF9900?style=for-the-badge" alt="ALB"/>
+        <img src="https://img.shields.io/badge/ECR-FF9900?style=for-the-badge" alt="ECR"/>
+        <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"/>
+      </p>
+      <sub>Auto-healing ASG of <code>t3.micro</code> instances behind an ALB; container images in ECR.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <h4>Data</h4>
+      <p>
+        <img src="https://img.shields.io/badge/RDS%20PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="RDS PostgreSQL"/>
+        <img src="https://img.shields.io/badge/DynamoDB-4053D6?style=for-the-badge&logo=amazondynamodb&logoColor=white" alt="DynamoDB"/>
+        <img src="https://img.shields.io/badge/Secrets%20Manager-DD344C?style=for-the-badge" alt="Secrets Manager"/>
+      </p>
+      <sub>Relational data on private RDS; audit events on DynamoDB; DB password generated into Secrets Manager.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <h4>Serverless</h4>
+      <p>
+        <img src="https://img.shields.io/badge/Lambda-FF9900?style=for-the-badge&logo=awslambda&logoColor=white" alt="Lambda"/>
+        <img src="https://img.shields.io/badge/API%20Gateway-FF4F8B?style=for-the-badge" alt="API Gateway"/>
+        <img src="https://img.shields.io/badge/SES-DD344C?style=for-the-badge" alt="SES"/>
+      </p>
+      <sub>HTTP APIs in front of Lambda; SES for transactional email from the contact form.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <h4>Edge</h4>
+      <p>
+        <img src="https://img.shields.io/badge/CloudFront-8C4FFF?style=for-the-badge" alt="CloudFront"/>
+        <img src="https://img.shields.io/badge/S3%20%28static%29-569A31?style=for-the-badge&logo=amazons3&logoColor=white" alt="S3 static"/>
+      </p>
+      <sub>One HTTPS origin for the whole app; static SPA from private S3 via Origin Access Control.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <h4>Observability</h4>
+      <p>
+        <img src="https://img.shields.io/badge/CloudWatch-FF4F8B?style=for-the-badge&logo=amazoncloudwatch&logoColor=white" alt="CloudWatch"/>
+        <img src="https://img.shields.io/badge/SNS-FF4F8B?style=for-the-badge" alt="SNS"/>
+        <img src="https://img.shields.io/badge/X--Ray-FF4F8B?style=for-the-badge" alt="X-Ray"/>
+      </p>
+      <sub>Metrics, logs, and alarms across every tier; SNS fan-out; X-Ray traces the serverless paths.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <h4>Identity &amp; CI/CD</h4>
+      <p>
+        <img src="https://img.shields.io/badge/IAM%20%2B%20OIDC-DD344C?style=for-the-badge" alt="IAM + OIDC"/>
+        <img src="https://img.shields.io/badge/GitHub%20Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white" alt="GitHub Actions"/>
+      </p>
+      <sub>Least-privilege IAM with condition keys; keyless CI auth via OIDC federation.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <h4>Application</h4>
+      <p>
+        <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI"/>
+        <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React"/>
+        <img src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite"/>
+      </p>
+      <sub>Python 3.12 backend, React 18 SPA built with Vite — the simplest CRUD needed to wire the stack.</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
+## Engineering practices demonstrated
+
+The ten disciplines this project deliberately exercises. These are the things
+to grep the repo for, not "features":
+
+| # | Practice | Where to find it |
+|---|----------|-------------------|
+| 1 | **Remote state with locking** — Terraform safe to run from multiple machines / CI | `terraform/bootstrap/` (S3 + DynamoDB) |
+| 2 | **Per-stack state isolation** — cross-stack reads via `terraform_remote_state`, never re-declaration | every stack's `backend.s3.key` |
+| 3 | **Least-privilege IAM** — resource-scoped policies, condition keys (e.g. `ses:FromAddress`, `aws:SourceArn`) | `terraform/{compute,serverless-contact,cdn}/iam.tf` |
+| 4 | **Multi-AZ networking** — public / private app / private DB subnets across two AZs | `terraform/network/{subnets,routing}.tf` |
+| 5 | **Immutable image deploys** — ECR push + ASG `start-instance-refresh` rollout | `.github/workflows/backend.yml` |
+| 6 | **Static assets through CloudFront** — private S3 via OAC, cache invalidation on every deploy | `terraform/cdn/` + `.github/workflows/frontend.yml` |
+| 7 | **Workflow concurrency** — prevents state-lock and refresh races on rapid pushes | `.github/workflows/terraform.yml` `concurrency:` |
+| 8 | **Observability across three pillars** — metrics, logs, traces (X-Ray) | `terraform/observability/`, Lambda `tracing_config` |
+| 9 | **Cost controls** — Budgets, billing alarm, free-tier-aware sizing, NAT instance over Gateway | [Doc 03](docs/03-aws-account-and-cost-safety.md), `terraform/compute/nat.tf` |
+| 10 | **Keyless GitHub Actions auth** — OIDC federation, `sub` claim pinned to repo + refs | `terraform/cicd/oidc.tf` |
 
 ---
 
 ## Table of contents
 
-- [Features](#features)
-- [Architecture](#architecture)
+- [Architecture at a glance](#architecture-at-a-glance)
+- [Architecture diagram](#architecture-diagram)
 - [Request flow](#request-flow)
 - [Network topology](#network-topology)
 - [Security architecture](#security-architecture)
 - [Data model](#data-model)
-- [Tech stack](#tech-stack)
 - [Repository structure](#repository-structure)
 - [Infrastructure modules](#infrastructure-modules)
 - [Prerequisites](#prerequisites)
@@ -39,42 +164,27 @@ you to ~$0.
 
 ---
 
-## Features
+## Architecture at a glance
 
-**Application**
-- Patients and appointments CRUD with FastAPI + SQLAlchemy
-- React SPA (Vite) listing/creating patients and appointments
-- `/health` endpoint for load-balancer health checks
-- Auto-generated interactive API docs at `/docs`
+Users hit **CloudFront**. Static React assets come from an **S3** bucket via
+Origin Access Control. API requests (`/api/*`) are forwarded to an
+**Application Load Balancer**, which routes them to an **Auto Scaling Group**
+of EC2 instances running the FastAPI backend container pulled from **ECR**. The
+backend talks to a private **RDS PostgreSQL** instance using credentials
+fetched at boot from **Secrets Manager** via the instance's IAM role.
 
-**Infrastructure**
-- Custom VPC (`10.0.0.0/16`) with public/private subnets across two Availability Zones
-- Three-tier security-group chain: `ALB → App → DB` (defense-in-depth)
-- Stateless NACL backstops on public and private subnets
-- Internet egress for private subnets via a free-tier NAT instance (with `source_dest_check=false`)
-- Auto Scaling Group of `t3.micro` instances behind an Application Load Balancer
-- RDS PostgreSQL (single-AZ, encrypted) with master password generated and stored in **Secrets Manager**
-- IAM roles for EC2 with `least-privilege` policies (scoped to specific Secret ARNs)
-- Private S3 + CloudFront via **Origin Access Control** (no public S3 URLs)
-- One CloudFront URL for the whole app — `/*` → S3, `/api/*` → ALB (no CORS in production)
-
-**Serverless slices**
-- API Gateway HTTP API → Lambda → DynamoDB (audit events) with **X-Ray** tracing
-- API Gateway HTTP API → Lambda → **SES** (contact form) with `ses:FromAddress` IAM condition
-
-**Operations**
-- One CloudWatch dashboard summarising ALB, RDS, and Lambda
-- SNS-fanned alarms (ALB 5xx, healthy hosts, RDS CPU/connections/storage, Lambda errors, DynamoDB throttles)
-- Cost Explorer + Budgets + Compute Optimizer enabled
-- GitHub Actions CI/CD with **OIDC federation** (no AWS keys stored in GitHub)
-- Versioned Terraform state in S3 with DynamoDB locking
+Side flows run on **serverless**: a contact form posts to
+`API Gateway → Lambda → SES`, and audit events go to
+`API Gateway → Lambda → DynamoDB` with X-Ray tracing. **CloudWatch** collects
+metrics and logs across every tier, with alarms fanning out through **SNS** to
+email.
 
 ---
 
-## Architecture
+## Architecture diagram
 
-The full system. Public traffic enters through CloudFront; the three-tier path
-sits in a VPC; two serverless features hang off API Gateway.
+The full system at a glance. Public traffic enters through CloudFront; the
+three-tier path sits in a VPC; two serverless features hang off API Gateway.
 
 ```mermaid
 flowchart TB
@@ -324,27 +434,6 @@ erDiagram
 `PATIENTS` and `APPOINTMENTS` live in **RDS PostgreSQL** (the relational, joined
 data). `AUDIT_EVENTS` lives in **DynamoDB** (high-volume, write-heavy, simple
 key access) — exactly the split DynamoDB and a relational DB exist for.
-
----
-
-## Tech stack
-
-| Layer | Choice | Why |
-|-------|--------|-----|
-| IaC | **Terraform 1.5+** | Declarative, multi-cloud-friendly, the SRE/DevOps standard |
-| Backend runtime | **Python 3.12 + FastAPI** | Fast, type-hinted, auto-generates OpenAPI docs, light on `t3.micro` |
-| ORM | **SQLAlchemy 2.0** | Mature, type-safe with `Mapped`/`mapped_column` |
-| Validation | **Pydantic v2** | Request/response shapes from type hints |
-| Frontend | **React 18 + Vite** | Industry-standard SPA toolchain, fast HMR, static build |
-| Container | **Docker** | Same image on laptop and EC2; ECR for storage |
-| Compute | **EC2 ASG** (3-tier) + **Lambda** (serverless) | Right tool per workload |
-| Database | **PostgreSQL on RDS** | Managed backups, encryption at rest, parameter groups |
-| NoSQL | **DynamoDB** (on-demand) | Free tier, single-digit-ms reads, serverless-friendly |
-| Edge | **CloudFront + S3 (OAC)** | Global HTTPS, edge caching, no CORS, free TLS cert |
-| Email | **SES v2** | Pay-per-mail, IAM-controlled sending |
-| Tracing | **AWS X-Ray** | Distributed request timelines for the serverless slices |
-| Logs/metrics/alarms | **CloudWatch + SNS** | Native AWS observability |
-| CI/CD | **GitHub Actions + OIDC** | Keyless, short-lived creds, per-repo trust |
 
 ---
 
