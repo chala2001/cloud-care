@@ -2,12 +2,16 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./pages/Dashboard.jsx";
 import About from "./pages/About.jsx";
+import Contact from "./pages/Contact.jsx";
+import Audit from "./pages/Audit.jsx";
 
-// Tiny hash-based router so deep links (#/about) work without adding a router
-// library. Two routes is not enough to justify react-router-dom.
+// Tiny hash-based router so deep links (#/about, #/contact, #/audit) work
+// without adding a router library.
+const ROUTES = ["dashboard", "about", "contact", "audit"];
+
 function getRoute() {
   const h = (window.location.hash || "").replace(/^#\/?/, "");
-  return h === "about" ? "about" : "dashboard";
+  return ROUTES.includes(h) ? h : "dashboard";
 }
 
 export default function App() {
@@ -23,6 +27,15 @@ export default function App() {
     return "nav-link" + (route === target ? " nav-link-active" : "");
   }
 
+  function renderPage() {
+    switch (route) {
+      case "about":    return <About />;
+      case "contact":  return <Contact />;
+      case "audit":    return <Audit />;
+      default:         return <Dashboard />;
+    }
+  }
+
   return (
     <>
       <header className="app-header">
@@ -36,14 +49,16 @@ export default function App() {
           </a>
 
           <nav className="app-nav">
-            <a href="#/"      className={navClass("dashboard")}>Dashboard</a>
-            <a href="#/about" className={navClass("about")}>About</a>
+            <a href="#/"        className={navClass("dashboard")}>Dashboard</a>
+            <a href="#/audit"   className={navClass("audit")}>Audit</a>
+            <a href="#/contact" className={navClass("contact")}>Contact</a>
+            <a href="#/about"   className={navClass("about")}>About</a>
           </nav>
         </div>
       </header>
 
       <main className="app-main">
-        {route === "about" ? <About /> : <Dashboard />}
+        {renderPage()}
       </main>
     </>
   );
